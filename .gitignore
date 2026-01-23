@@ -1,0 +1,7 @@
+# Ignore a pasta de ambiente virtual e arquivos de ambiente
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+chroma_db/
