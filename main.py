@@ -15,15 +15,25 @@ def main():
     print("Inicializando sistema...")
     
     try:
-        # Inicializar RAG
-        rag = RAGSystem()
-        # Carregar documentos (pode comentar essa linha se quiser carregar apenas uma vez)
-        rag.load_documents()
+        # Pergunta sobre o modo de operação
+        mode = input("Deseja ativar o modo RAG com documentos? (s/n): ").strip().lower()
+        use_rag = mode == 's'
+
+        rag = None
+        if use_rag:
+            print("Iniciando sistema RAG...")
+            # Inicializar RAG
+            rag = RAGSystem()
+            # Carregar documentos
+            rag.load_documents()
+        else:
+            print("Iniciando modo padrão (apenas Gemini)...")
         
         # Inicializar Bot
         bot = GeminiBot()
         
-        print("\n=== Chatbot UFS (RAG + Gemini) ===")
+        mode_str = "RAG Ativo" if use_rag else "Padrão"
+        print(f"\n=== Chatbot UFS ({mode_str}) ===")
         print("Digite 'sair' para encerrar.\n")
         
         while True:
@@ -31,9 +41,11 @@ def main():
             if user_input.lower() in ['sair', 'exit', 'quit']:
                 break
                 
-            # 1. Buscar contexto relevante
-            print("🔍 Buscando informações...")
-            relevant_chunks = rag.search(user_input)
+            relevant_chunks = None
+            if use_rag:
+                # 1. Buscar contexto relevante
+                print("🔍 Buscando informações...")
+                relevant_chunks = rag.search(user_input)
             
             # 2. Gerar resposta
             print("🤖 Gerando resposta...")

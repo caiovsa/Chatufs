@@ -1,5 +1,6 @@
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import chromadb
 from chromadb.utils import embedding_functions
 
@@ -12,13 +13,15 @@ class RAGSystem:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY não encontrada no .env")
-        genai.configure(api_key=api_key)
+        
+        # Inicializar Cliente do Google Gen AI (Novo SDK)
+        self.genai_client = genai.Client(api_key=api_key)
         
         # Inicializar ChromaDB
         self.client = chromadb.PersistentClient(path=db_path)
         
         # Usar função de embedding customizada do Google
-        self.embedding_fn = self._create_embedding_fn(api_key)
+        self.embedding_fn = self._create_embedding_fn()
         
         # Criar ou obter coleção
         self.collection = self.client.get_or_create_collection(
@@ -26,21 +29,34 @@ class RAGSystem:
             embedding_function=self.embedding_fn
         )
 
-    def _create_embedding_fn(self, api_key):
+    def _create_embedding_fn(self):
         # Wrapper simples para compatibilidade com ChromaDB
+        # Captura o client do escopo externo (self.genai_client)
+        genai_client = self.genai_client
+        
         class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
             def __call__(self, input: list[str]) -> list[list[float]]:
                 # Modelo de embedding do Google
-                model = 'models/text-embedding-004' 
-                embeddings = []
-                for text in input:
-                    result = genai.embed_content(
+                model = 'text-embedding-004'
+                
+                # A nova SDK suporta lista de conteudos diretamente, mas para garantir
+                # o formato exato que o Chroma espera (lista de lista de floats),
+                # vamos processar. O SDK retorna um objeto com .embeddings
+                
+                try:
+                    result = genai_client.models.embed_content(
                         model=model,
-                        content=text,
-                        task_type="retrieval_document"
+                        contents=input,
+                        config=types.EmbedContentConfig(
+                            task_type="RETRIEVAL_DOCUMENT"
+                        )
                     )
-                    embeddings.append(result['embedding'])
-                return embeddings
+                    # Extrair os valores dos embeddings
+                    return [e.values for e in result.embeddings]
+                except Exception as e:
+                    print(f"Erro ao gerar embeddings: {e}")
+                    return []
+
         return GeminiEmbeddingFunction()
 
     def load_documents(self):
@@ -62,8 +78,7 @@ class RAGSystem:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     content = f.read()
                 
-                # Chunking simplificado (divisão por parágrafos ou tamanho fixo seria ideal para textos grandes)
-                # Aqui vamos dividir por quebras de linha duplas para simplificar
+                # Chunking simplificado
                 chunks = [c.strip() for c in content.split('\n\n') if c.strip()]
                 
                 for i, chunk in enumerate(chunks):

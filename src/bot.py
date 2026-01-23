@@ -1,5 +1,6 @@
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 class GeminiBot:
     def __init__(self):
@@ -7,28 +8,28 @@ class GeminiBot:
         if not api_key:
             raise ValueError("GEMINI_API_KEY não encontrada no .env")
         
-        genai.configure(api_key=api_key)
+        self.client = genai.Client(api_key=api_key)
         
-        # Configuração do modelo
-        generation_config = {
-            "temperature": 0.7,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 8192,
-        }
+        # Configuração do modelo via dicionário ou objeto de configuração
+        # Ajustado para usar os tipos da nova SDK se necessário, mas dicionários simples costumam funcionar
+        # ou passando parâmetros diretos no create.
         
-        self.model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=generation_config,
+        self.chat = self.client.chats.create(
+            model="gemini-3-flash-preview",
+            config=types.GenerateContentConfig(
+                temperature=0.7,
+                top_p=0.95,
+                top_k=40,
+                max_output_tokens=8192,
+            )
         )
-        self.chat = self.model.start_chat(history=[])
 
-    def generate_response(self, query, context_chunks):
-        """Gera resposta baseada na pergunta e no contexto recuperado"""
+    def generate_response(self, query, context_chunks=None):
+        """Gera resposta baseada na pergunta e no contexto recuperado (opcional)"""
         
-        context_text = "\n\n".join(context_chunks)
-        
-        prompt = f"""
+        if context_chunks:
+            context_text = "\n\n".join(context_chunks)
+            prompt = f"""
 Você é um assistente útil e preciso. Use APENAS as informações fornecidas no contexto abaixo para responder à pergunta do usuário.
 Se a informação não estiver no contexto, diga que não sabe com base nos documentos fornecidos.
 
@@ -38,5 +39,9 @@ CONTEXTO:
 PERGUNTA:
 {query}
 """
+        else:
+            # Modo padrão sem RAG
+            prompt = query
+
         response = self.chat.send_message(prompt)
         return response.text
