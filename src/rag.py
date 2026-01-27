@@ -30,34 +30,57 @@ class RAGSystem:
         )
 
     def _create_embedding_fn(self):
-        # Wrapper simples para compatibilidade com ChromaDB
-        # Captura o client do escopo externo (self.genai_client)
         genai_client = self.genai_client
         
         class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
             def __call__(self, input: list[str]) -> list[list[float]]:
-                # Modelo de embedding do Google
                 model = 'text-embedding-004'
                 
-                # A nova SDK suporta lista de conteudos diretamente, mas para garantir
-                # o formato exato que o Chroma espera (lista de lista de floats),
-                # vamos processar. O SDK retorna um objeto com .embeddings
-                
                 try:
-                    result = genai_client.models.embed_content(
-                        model=model,
-                        contents=input,
-                        config=types.EmbedContentConfig(
-                            task_type="RETRIEVAL_DOCUMENT"
+                    # Batch process - max 100 requests per batch
+                    batch_size = 100
+                    all_embeddings = []
+                    
+                    for i in range(0, len(input), batch_size):
+                        batch = input[i:i + batch_size]
+                        result = genai_client.models.embed_content(
+                            model=model,
+                            contents=batch,
+                            config=types.EmbedContentConfig(
+                                task_type="RETRIEVAL_DOCUMENT"
+                            )
                         )
-                    )
-                    # Extrair os valores dos embeddings
-                    return [e.values for e in result.embeddings]
+                        all_embeddings.extend([e.values for e in result.embeddings])
+                    
+                    return all_embeddings
                 except Exception as e:
                     print(f"Erro ao gerar embeddings: {e}")
                     return []
 
         return GeminiEmbeddingFunction()
+
+    def chunk_text(self, text, chunk_size=1000, overlap=200):
+        """Divide o texto em blocos com sobreposição para não perder contexto nas bordas."""
+        if not text:
+            return []
+        
+        chunks = []
+        start = 0
+        text_len = len(text)
+
+        while start < text_len:
+            end = start + chunk_size
+            chunk = text[start:end]
+            chunks.append(chunk)
+            
+            # Se chegamos ao final, paramos
+            if end >= text_len:
+                break
+                
+            # Avança o cursor, mantendo o overlap
+            start += (chunk_size - overlap)
+            
+        return chunks
 
     def load_documents(self):
         """Lê arquivos da pasta documents e indexa no ChromaDB"""
@@ -72,33 +95,57 @@ class RAGSystem:
             print(f"Pasta {self.documents_dir} criada.")
             return
 
+        # Limpa a coleção existente para evitar duplicatas ou dados velhos
+        # (Opcional, mas recomendado se estamos reindexando tudo)
+        try:
+            current_ids = self.collection.get()['ids']
+            if current_ids:
+                print(f"Removendo {len(current_ids)} documentos antigos...")
+                self.collection.delete(ids=current_ids)
+        except Exception as e:
+            print(f"Aviso ao limpar coleção: {e}")
+
         for filename in os.listdir(self.documents_dir):
-            if filename.endswith(".txt"):
+            if filename.endswith(".txt") or filename.endswith(".md"):
                 filepath = os.path.join(self.documents_dir, filename)
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # Chunking simplificado
-                chunks = [c.strip() for c in content.split('\n\n') if c.strip()]
-                
-                for i, chunk in enumerate(chunks):
-                    ids.append(f"{filename}_{i}")
-                    documents.append(chunk)
-                    metadatas.append({"source": filename})
-                    count += 1
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Usa a nova função de chunking
+                    # Tamanho 1000 chars é bom para pegar parágrafos inteiros + contexto
+                    raw_chunks = self.chunk_text(content, chunk_size=1000, overlap=200)
+                    
+                    for i, chunk in enumerate(raw_chunks):
+                        chunk_id = f"{filename}_{i}"
+                        
+                        # TRUQUE DE RAG: Injeta o nome do arquivo no conteúdo do chunk
+                        # Isso ajuda o modelo a saber de qual matéria aquele texto fala.
+                        enriched_chunk = f"Documento Fonte: {filename}\n---\n{chunk}"
+                        
+                        ids.append(chunk_id)
+                        documents.append(enriched_chunk)
+                        metadatas.append({"source": filename})
+                        count += 1
+                except Exception as e:
+                    print(f"Erro ao processar {filename}: {e}")
         
         if documents:
             # Upsert (atualiza se existir, insere se novo)
-            self.collection.upsert(
-                ids=ids,
-                documents=documents,
-                metadatas=metadatas
-            )
+            # Processar em lotes para não estourar limite do Chroma/API
+            batch_size = 100
+            for i in range(0, len(documents), batch_size):
+                end = i + batch_size
+                self.collection.upsert(
+                    ids=ids[i:end],
+                    documents=documents[i:end],
+                    metadatas=metadatas[i:end]
+                )
             print(f"Indexados {count} fragmentos de texto.")
         else:
             print("Nenhum documento encontrado ou documentos vazios.")
 
-    def search(self, query, n_results=3):
+    def search(self, query, n_results=5):
         """Busca os trechos mais relevantes para a pergunta"""
         results = self.collection.query(
             query_texts=[query],
