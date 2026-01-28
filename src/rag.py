@@ -37,13 +37,15 @@ class RAGSystem:
             def __call__(self, input: list[str]) -> list[list[float]]:
                 model = 'text-embedding-004'
                 
-                try:
-                    # Batch process - max 100 requests per batch
-                    batch_size = 100
-                    all_embeddings = []
-                    
-                    for i in range(0, len(input), batch_size):
-                        batch = input[i:i + batch_size]
+                # Batch process - max 100 requests per batch
+                batch_size = 100
+                all_embeddings = []
+                
+                print(f"Gerando embeddings para {len(input)} textos...")
+                
+                for i in range(0, len(input), batch_size):
+                    batch = input[i:i + batch_size]
+                    try:
                         result = genai_client.models.embed_content(
                             model=model,
                             contents=batch,
@@ -52,11 +54,11 @@ class RAGSystem:
                             )
                         )
                         all_embeddings.extend([e.values for e in result.embeddings])
-                    
-                    return all_embeddings
-                except Exception as e:
-                    print(f"Erro ao gerar embeddings: {e}")
-                    return []
+                    except Exception as e:
+                        print(f"ERRO FATAL na API do Gemini: {str(e)}")
+                        raise e  # Re-levanta o erro para aparecer no log do Streamlit
+                
+                return all_embeddings
 
         return GeminiEmbeddingFunction()
 
