@@ -3,6 +3,7 @@ from google import genai
 from google.genai import types
 import chromadb
 from chromadb.utils import embedding_functions
+import streamlit as st
 
 class RAGSystem:
     def __init__(self, documents_dir="documents", db_path="chroma_db"):
@@ -10,9 +11,9 @@ class RAGSystem:
         self.db_path = db_path
         
         # Configurar API Key
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY não encontrada no .env")
+            raise ValueError("GEMINI_API_KEY não encontrada. Configure-a no arquivo .env (local) ou nos Secrets do Streamlit (nuvem).")
         
         # Inicializar Cliente do Google Gen AI (Novo SDK)
         self.genai_client = genai.Client(api_key=api_key)

@@ -1,12 +1,14 @@
 import os
 from google import genai
 from google.genai import types
+import streamlit as st
+
 
 class GeminiBot:
     def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY não encontrada no .env")
+            raise ValueError("GEMINI_API_KEY não encontrada. Configure-a no arquivo .env (local) ou nos Secrets do Streamlit (nuvem).")
         
         self.client = genai.Client(api_key=api_key)
         
